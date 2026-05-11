@@ -433,6 +433,36 @@ def print_net_federal_gig_deduction_sweep(
         ).summary()
     )
     print(
+        "\n—— 极小值明细（Net federal min）——\n"
+        f"扣除≈${sw.gig_deduction_at_min:,.2f}，Net federal={sw.min_net_federal:,.2f}\n"
+    )
+    print(
+        compute_mfj_2025(
+            w2,
+            gig_gross,
+            qualifying_children,
+            sw.gig_deduction_at_min,
+            investment_income=investment_income,
+            age_head=age_head,
+            age_spouse=age_spouse,
+        ).summary()
+    )
+    print(
+        "\n—— 极大值明细（Net federal max）——\n"
+        f"扣除≈${sw.gig_deduction_at_max:,.2f}，Net federal={sw.max_net_federal:,.2f}\n"
+    )
+    print(
+        compute_mfj_2025(
+            w2,
+            gig_gross,
+            qualifying_children,
+            sw.gig_deduction_at_max,
+            investment_income=investment_income,
+            age_head=age_head,
+            age_spouse=age_spouse,
+        ).summary()
+    )
+    print(
         "\n区间汇总（Net federal）："
         f" 最低 ${sw.min_net_federal:,.2f} "
         f"（扣除≈${sw.gig_deduction_at_min:,.2f}），"
