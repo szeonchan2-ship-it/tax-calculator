@@ -519,6 +519,45 @@ def net_federal_range_for_gig_deduction(
     )
 
 
+def net_federal_vs_gig_deduction_curve(
+    w2: float,
+    gig_gross: float,
+    qualifying_children: int,
+    *,
+    investment_income: float = 0.0,
+    age_head: int = 35,
+    age_spouse: int = 35,
+) -> list[dict[str, float]]:
+    """
+    Yields (deductible, net federal) pairs for x = gig deduction from $0 through
+    gig gross, using the same sample grid as the CLI range sweep.
+
+    Returned dict keys: deductible, net_federal.
+    """
+    g = max(0.0, float(gig_gross))
+    pts = _gig_deduction_sample_points(g)
+    out: list[dict[str, float]] = []
+    for d in pts:
+        r = compute_mfj_2025(
+            w2,
+            g,
+            qualifying_children,
+            d,
+            investment_income=investment_income,
+            age_head=age_head,
+            age_spouse=age_spouse,
+        )
+        out.append(
+            {
+                "deductible": round(float(d), 2),
+                "net_federal": round(
+                    r.net_federal_after_refundable_credits, 2
+                ),
+            }
+        )
+    return out
+
+
 def _prompt_float(label: str, default: float = 0.0) -> float:
     suf = f"（直接回车 = {default:g}）" if default != 0.0 else "（直接回车 = 0）"
     s = input(f"{label}{suf}: ").strip().replace(",", "")

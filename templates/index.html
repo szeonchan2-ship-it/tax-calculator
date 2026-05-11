@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MFJ 2025 — Net federal vs Gig deductible</title>
+  <script src="https://cdn.plot.ly/plotly-2.29.1.min.js" charset="utf-8"></script>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b97a8;
+      --accent: #5b9cfa;
+      --border: #2a3748;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      padding: 1.25rem clamp(12px, 3vw, 28px);
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 0 0 0.35rem;
+    }
+
+    .sub {
+      color: var(--muted);
+      margin: 0 0 1.25rem;
+      font-size: 0.9rem;
+      max-width: 52rem;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+      max-width: 980px;
+    }
+
+    fieldset.grid {
+      border: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem 1rem;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="number"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.45rem 0.55rem;
+      font-size: 0.95rem;
+    }
+
+    input:focus {
+      outline: 2px solid rgba(91, 156, 250, 0.45);
+      border-color: var(--accent);
+    }
+
+    button#go {
+      margin-top: 0.85rem;
+      background: linear-gradient(180deg, #6aa8fc, var(--accent));
+      color: #0a0e14;
+      border: none;
+      border-radius: 10px;
+      padding: 0.55rem 1.35rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+
+    button#go:hover {
+      filter: brightness(1.06);
+    }
+
+    #picked,
+    #snapshot-hint {
+      font-size: 0.92rem;
+      color: var(--muted);
+      min-height: 1.35em;
+    }
+
+    #picked strong {
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #chart {
+      height: min(460px, 65vh);
+      width: 100%;
+      margin-top: 0.75rem;
+    }
+
+    code {
+      font-size: 0.85em;
+      color: var(--accent);
+      background: rgba(91, 156, 250, 0.12);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>2025 MFJ 联邦税 — <code>deductible</code> × <code>net federal</code></h1>
+  <p class="sub">
+    X 轴：Gig / 自雇可扣除费用（$0～毛利）；Y 轴：程序里的 Net federal。
+    <strong>悬停</strong>曲线可看坐标；<strong>点击</strong>曲线在下面固定显示选中的 x、y。
+    「当前明细」用你的 <code>Gig deductible</code> 输入值算一单（可与曲线上某点比对）。
+  </p>
+
+  <div class="panel">
+    <form id="inputs" autocomplete="off">
+      <fieldset class="grid">
+        <label>W-2 wages
+          <input name="w2" type="number" step="0.01" value="100000" />
+        </label>
+        <label>Gig gross
+          <input name="gig_gross" type="number" step="0.01" value="40000" />
+        </label>
+        <label>Gig deductible（单笔明细）
+          <input name="gig_deduction" type="number" step="0.01" value="8000" />
+        </label>
+        <label>Qualifying children
+          <input name="kids" type="number" step="1" min="0" value="2" />
+        </label>
+        <label>Investment income
+          <input name="investment_income" type="number" step="0.01" value="0" />
+        </label>
+        <label>Age head
+          <input name="age_head" type="number" step="1" min="0" max="120" value="35" />
+        </label>
+        <label>Age spouse
+          <input name="age_spouse" type="number" step="1" min="0" max="120" value="35" />
+        </label>
+      </fieldset>
+      <button type="button" id="go">更新曲线</button>
+    </form>
+    <p id="snapshot-hint"></p>
+  </div>
+
+  <div class="panel">
+    <p id="picked">点击曲线任意数据点：<strong>—</strong></p>
+    <div id="chart"></div>
+  </div>
+
+  <pre id="summary" style="margin: 0; max-width:980px; white-space:pre-wrap;font-size:0.82rem;color:var(--muted);"></pre>
+
+  <script>
+    function num(el) {
+      const v = parseFloat(String(el.value).replace(/,/g, ""));
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    let plotListenersAttached = false;
+
+    async function redraw() {
+      const root = document.getElementById("inputs");
+      const body = {
+        w2: num(root.querySelector("[name=w2]")),
+        gig_gross: num(root.querySelector("[name=gig_gross]")),
+        gig_deduction: num(root.querySelector("[name=gig_deduction]")),
+        kids: Math.max(0, parseInt(root.querySelector("[name=kids]").value, 10) || 0),
+        investment_income: num(root.querySelector("[name=investment_income]")),
+        age_head: parseInt(root.querySelector("[name=age_head]").value, 10) || 0,
+        age_spouse: parseInt(root.querySelector("[name=age_spouse]").value, 10) || 0,
+      };
+
+      const res = await fetch("/api/curve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        document.getElementById("picked").innerHTML =
+          "<strong>出错：</strong>" + (j.error || res.statusText);
+        return;
+      }
+
+      const x = j.points.map((p) => p.deductible);
+      const y = j.points.map((p) => p.net_federal);
+
+      const traceCurve = {
+        x,
+        y,
+        mode: "lines+markers",
+        type: "scatter",
+        name: "Sweep",
+        hovertemplate:
+          "<b>Gig deductible</b>: %{x:$,.2f}<br><b>Net federal</b>: %{y:$,.2f}<extra></extra>",
+        marker: { size: Math.min(9, Math.max(4, Math.floor(5000 / Math.max(x.length, 20)))) },
+        line: { width: 2, color: "#5b9cfa" },
+      };
+
+      const snapX = Math.max(0, body.gig_deduction);
+      const snapY = j.snapshot_net_federal;
+      const traceSnap = {
+        x: [snapX],
+        y: [snapY],
+        mode: "markers",
+        type: "scatter",
+        name: "Current input",
+        marker: { size: 14, color: "#ffb020", symbol: "diamond", line: { width: 2, color: "#fff" } },
+        hovertemplate:
+          "<b>表单 deductible</b>: %{x:$,.2f}<br><b>Net federal</b>: %{y:$,.2f}<extra></extra>",
+      };
+
+      const layout = {
+        paper_bgcolor: "transparent",
+        plot_bgcolor: "rgba(26,35,50,0.7)",
+        font: { color: "#e7ecf3", family: "system-ui, sans-serif" },
+        margin: { l: 64, r: 24, t: 28, b: 56 },
+        xaxis: {
+          title: "Gig / 自雇可扣除费用 ($)",
+          gridcolor: "rgba(255,255,255,0.08)",
+          zerolinecolor: "rgba(255,255,255,0.15)",
+        },
+        yaxis: {
+          title: "Net federal ($)",
+          gridcolor: "rgba(255,255,255,0.08)",
+          zerolinecolor: "rgba(255,255,255,0.2)",
+          zerolinewidth: 2,
+        },
+        legend: { orientation: "h", yanchor: "bottom", y: 1.02, x: 0 },
+        dragmode: "zoom",
+      };
+
+      const config = { responsive: true, displaylogo: false, scrollZoom: true };
+
+      await Plotly.react("chart", [traceCurve, traceSnap], layout, config);
+
+      document.getElementById("picked").innerHTML =
+        '点击<strong>蓝色</strong>曲线选点：<strong>—</strong> &nbsp;(悬停也会显示坐标)';
+      document.getElementById("snapshot-hint").textContent =
+        "橙色菱形：你填的 「Gig deductible」对应的 Net federal：" +
+        Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(snapY);
+      document.getElementById("summary").textContent = j.snapshot_summary || "";
+
+      const el = document.getElementById("chart");
+      if (!plotListenersAttached) {
+        plotListenersAttached = true;
+        el.on("plotly_click", function (ev) {
+          const p = ev.points && ev.points[0];
+          if (!p || p.curveNumber !== 0) return;
+          const xd = Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+          }).format(p.x);
+          const yd = Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+          }).format(p.y);
+          document.getElementById("picked").innerHTML =
+            "选中：<strong>Gig deductible = " +
+            xd +
+            "</strong> ，<strong>Net federal = " +
+            yd +
+            "</strong>";
+        });
+
+        el.on("plotly_hover", function (ev) {
+          const p = ev.points && ev.points[0];
+          if (!p || p.curveNumber !== 0) return;
+          const xd = Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+          }).format(p.x);
+          const yd = Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+          }).format(p.y);
+          document.title = xd + " → " + yd;
+        });
+      }
+    }
+
+    document.getElementById("go").addEventListener("click", redraw);
+    redraw().catch(console.error);
+  </script>
+</body>
+
+</html>
